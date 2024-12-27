@@ -1,6 +1,6 @@
 {
   "name": "bitburner-fresh",
-  "version": "0.",
+  "version": "0.0",
   "description": "My Scripts for BitBurner",
   "main": "index.js",
   "scripts": {
