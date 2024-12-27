@@ -11,3 +11,5 @@ To use the scripts in the repo, you should copy the scripts directly from `mirro
 If you would like to setup your own development environment using an external editor, go read [the README in Shy's external editor template](https://github.com/shyguy1412/bb-external-editor#readme).
 
 For mirroring, there is one addition to `config.mjs`: you can now add an `ignorePaths` array to ignore certain paths from being mirrored. This is particularly useful if your scripts read and write files to communicate. See [`config.mjs`](https://github.com/JacobLiu001/bitburner-fresh/blob/main/config.mjs) for an example.
+
+For TypeScript type definitions, after you've connected, you should see `NetscriptDefinitions.d.ts` in your project root. Run `npm run gentypes` to dump all the type definitions into the global scope. You should now be able to use these type definitions as you can in the in-game editor.

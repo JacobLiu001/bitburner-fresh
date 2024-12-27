@@ -131,6 +131,7 @@ dist
 
 # Netscript Type Definitions. These are pulled from the game
 NetscriptDefinitions.d.ts
+global_dump.d.ts
 
 # Location of the files mirrored from the game
 

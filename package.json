@@ -4,7 +4,8 @@
   "description": "My Scripts for BitBurner",
   "main": "index.js",
   "scripts": {
-    "start": "node ./config.mjs"
+    "start": "node ./config.mjs",
+    "gentypes": "node ./dump_to_global.js"
   },
   "repository": {
     "type": "git",

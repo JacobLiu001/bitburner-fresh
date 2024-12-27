@@ -88,7 +88,7 @@ function generateGlobalTypes(
     lines.push("}");
     lines.push("");
     // Force the file to be a module
-    lines.push("export {};");
+    lines.push("export { };");
 
     const result = lines.join("\n");
     fs.writeFileSync(outputFile, result, "utf-8");
