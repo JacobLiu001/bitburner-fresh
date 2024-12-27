@@ -1,25 +1,25 @@
 {
-  "name": "bb-external-editor",
-  "version": "1.1.0",
-  "description": "template for external editors for the game bitburner",
+  "name": "bitburner-fresh",
+  "version": "0.",
+  "description": "My Scripts for BitBurner",
   "main": "index.js",
   "scripts": {
     "start": "node ./config.mjs"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/shyguy1412/bb-external-editor.git"
+    "url": "git+https://github.com/JacobLiu001/bitburner-fresh.git"
   },
-  "author": "Shy",
+  "author": "Yunzhi (Jacob) Liu",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/shyguy1412/bb-external-editor/issues"
+    "url": "https://github.com/JacobLiu001/bitburner-fresh/issues"
   },
-  "homepage": "https://github.com/shyguy1412/bb-external-editor#readme",
+  "homepage": "https://github.com/JacobLiu001/bitburner-fresh#readme",
   "dependencies": {
     "@types/react": "^18.3.4",
     "@types/react-dom": "^18.3.0",
     "esbuild": "^0.23.1",
-    "esbuild-bitburner-plugin": "^1.6.1"
+    "esbuild-bitburner-plugin": "git://github.com/JacobLiu001/esbuild-bitburner-plugin.git"
   }
 }

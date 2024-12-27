@@ -15,9 +15,13 @@ const createContext = async () => await context({
       port: 12525,
       types: 'NetscriptDefinitions.d.ts',
       mirror: {
+        "mirror": ["home"]
       },
       distribute: {
       },
+      ignorePaths: [
+        "tmp/**", "log*.txt"
+      ]
     })
   ],
   bundle: true,

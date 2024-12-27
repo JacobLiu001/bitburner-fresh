@@ -134,7 +134,8 @@ NetscriptDefinitions.d.ts
 
 # Location of the files mirrored from the game
 
-mirror/
+# Now that BitBurner itself can run typescript, we can just do everything in mirrored mode
+# mirror/
 build/
 
 .vscode/*
