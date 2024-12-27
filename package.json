@@ -20,6 +20,7 @@
     "@types/react": "^18.3.4",
     "@types/react-dom": "^18.3.0",
     "esbuild": "^0.23.1",
+    "typescript": "^5.7.2",
     "esbuild-bitburner-plugin": "git://github.com/JacobLiu001/esbuild-bitburner-plugin.git"
   }
 }

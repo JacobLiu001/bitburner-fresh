@@ -2,12 +2,7 @@ import { context } from 'esbuild';
 import { BitburnerPlugin } from 'esbuild-bitburner-plugin';
 
 const createContext = async () => await context({
-  entryPoints: [
-    'servers/**/*.js',
-    'servers/**/*.jsx',
-    'servers/**/*.ts',
-    'servers/**/*.tsx',
-  ],
+  entryPoints: [],
   outbase: "./servers",
   outdir: "./build",
   plugins: [
