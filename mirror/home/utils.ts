@@ -71,6 +71,11 @@ export async function getDataNewProcess(ns: NS, code: string, args: any[], fn: F
     ns.write(filename, script, "w");
     ns.clearPort(port);
     const pid = fn(filename, { temporary: true }, ...args);
+    if (pid === 0) {
+        ns.clearPort(port);
+        log(ns, `Failed to run code: ${code}`, true, "error");
+        return null;
+    }
     await ns.nextPortWrite(port);
     const result = ns.readPort(port);
     return result;
