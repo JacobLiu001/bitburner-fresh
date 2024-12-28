@@ -1,5 +1,6 @@
 import { find_xpath_with_retry, click, setText } from "./webui";
 import { getDataNewProcess, log } from "./utils";
+const CASINO_TIME_PORT = 10000256;
 
 const argsSchema: [string, string | boolean | number | string[]][] = [
     ["on-completion-script", ""],
@@ -48,7 +49,6 @@ async function scheduleByPort(ns: NS, portNum: number, f: Function) {
 }
 
 export async function main(ns: NS) {
-    const CASINO_TIME_PORT = 9999999;
     ns.tail();
     ns.enableLog("ALL");
     ns.disableLog("sleep");
@@ -82,9 +82,12 @@ export async function main(ns: NS) {
         } catch { }
         if (!travelled) {
             log(ns, "Failed to travel to Aevum with singularity. Trying with UI.", true, "warning");
+            // nav bar Travel button
             await click(ns, await find_xpath_with_retry(ns, "//div[@role='button' and ./div/p/text()='Travel']", false, 5));
+            // Aevum button
             await click(ns, await find_xpath_with_retry(ns, "//span[contains(@class,'travel') and ./text()='A']", false, 5));
             if (ns.getPlayer().city != "Aevum") {
+                // There might be a confirmation pop-up
                 await click(ns, await find_xpath_with_retry(ns, "//button[p/text()='Travel']", false, 5));
             }
         }
@@ -97,10 +100,12 @@ export async function main(ns: NS) {
     // now go to the casino
     try {
         // this is faster than SF4
+        // Nav bar city button
         await click(ns, await find_xpath_with_retry(ns, "//div[(@role = 'button') and (contains(., 'City'))]", false, 15, "City button missing. Is your nav menu collapsed?"));
+        // Casino button
         await click(ns, await find_xpath_with_retry(ns, "//span[@aria-label = 'Iker Molina Casino']", false, 15));
     } catch (e) {
-        let success = false, err;
+        let success = false, err: Error;
         try {
             success = await getDataNewProcess(ns, "ns.singularity.goToLocation('Iker Molina Casino')", [], ns.run, []);
         } catch (e) {
