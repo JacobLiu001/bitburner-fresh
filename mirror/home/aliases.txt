@@ -1,0 +1,3 @@
+alias man=help
+alias stats=home; run ./insight_scripts/stats.js
+alias sscan=home; run ./insight_scripts/scan.js
