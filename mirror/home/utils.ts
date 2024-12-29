@@ -58,24 +58,25 @@ function getCodePort(ns: NS, code: string): number {
  * @param function The function with which to run the code. Should be either ns.run or ns.exec with the hostname curried.
  * @param imports An array of [module, functions] to import into the temporary script
  */
-export async function getDataNewProcess(ns: NS, code: string, args: any[], fn: Function = ns.run, imports: [string, string[]][] = []): Promise<any> {
-    const port = getCodePort(ns, code);
+export async function getDataNewProcess(ns: NS, code: string, args: any[], fn: Function, imports: [string, string[]][] = []): Promise<any> {
     const script = `
         ${imports.map(([module, functions]) => `import {${functions.join(", ")}} from "${module}";`).join("\n")}
         export async function main(ns) {
+            let args = await ns.readPort(ns.pid);
             let result = ${code};
-            ns.writePort(${port}, result);
+            ns.writePort(ns.pid, result);
         }
     `;
-    const filename = `/tmp/tmp-${port}.js`;
+    const filename = `/tmp/tmp-${ns.pid}.js`;
     ns.write(filename, script, "w");
-    ns.clearPort(port);
-    const pid = fn(filename, { temporary: true }, ...args);
+    const pid = fn(filename, { temporary: true });
     if (pid === 0) {
-        ns.clearPort(port);
         log(ns, `Failed to run code: ${code}`, true, "error");
         return null;
     }
+    const port = pid;
+    ns.clearPort(port);
+    ns.writePort(port, args);
     await ns.nextPortWrite(port);
     const result = ns.readPort(port);
     return result;

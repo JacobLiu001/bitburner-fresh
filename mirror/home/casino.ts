@@ -1,6 +1,5 @@
 import { find_xpath_with_retry, click, setText } from "./webui";
 import { getDataNewProcess, log } from "./utils";
-const CASINO_TIME_PORT = 10000256;
 
 const argsSchema: [string, string | boolean | number | string[]][] = [
     ["on-completion-script", ""],
@@ -68,7 +67,7 @@ export async function main(ns: NS) {
         Date.prototype.getTime = o;
     });
 
-    const restoreTime = scheduleByPort(ns, CASINO_TIME_PORT, () => {
+    const restoreTime = scheduleByPort(ns, ns.pid, () => {
         Date.prototype.getTime = o;
     });
 
@@ -129,9 +128,9 @@ export async function main(ns: NS) {
 
     await ns.sleep(200);
     // signal to restore time now that it definitely finished seeding
-    ns.writePort(CASINO_TIME_PORT, 114514);
+    ns.writePort(ns.pid, 114514);
     await restoreTime;
-    ns.clearPort(CASINO_TIME_PORT);
+    ns.clearPort(ns.pid);
 
     for (let i = 0; i < spins.length; i++) {
         await setText(ns, inputWager, Math.min(1e7, ns.getPlayer().money).toString());
@@ -163,9 +162,3 @@ export async function main(ns: NS) {
         }
     }
 }
-
-// export async function main(ns: NS) {
-//     // if there are popups, close them
-//     await checkForKickedOut(ns, 100, 3);
-
-// }
