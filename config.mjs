@@ -9,6 +9,7 @@ const createContext = async () => await context({
     BitburnerPlugin({
       port: 12525,
       types: 'NetscriptDefinitions.d.ts',
+      pushOnConnect: true,
       mirror: {
         "mirror": ["home"]
       },
