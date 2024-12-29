@@ -1,17 +1,4 @@
-interface Job {
-    type: "hack" | "weaken1" | "grow" | "weaken2";
-    end: number;
-    time: number;
-    target: string;
-    threads: number;
-    cost: number;
-    server: string;
-    report: boolean;
-    port: number;
-    batch: number;
-    pid: number;
-    id: string;
-}
+import { Job } from "./typedefs";
 
 export async function main(ns: NS) {
     const start = performance.now();

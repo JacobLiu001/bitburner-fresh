@@ -1,54 +1,110 @@
 import { getDataNewProcess } from "../utils";
 import {
-    Deque,
     getAllServers,
     isPrepped,
-    Job,
-    RAMCluster,
+    preFormulasThreadCalc
+} from "./utils";
+
+import { Deque } from "./Deque";
+import { Job } from "./Job";
+import { TargetProfile } from "./ServerProfile";
+import { RAMCluster } from "./RAMCluster";
+
+import {
     SCRIPTS,
-    ServerProfile,
-    TYPES,
     SECURITY_PER_GROW,
     SECURITY_PER_WEAKEN,
-    optimizeProfile
-} from "./utils";
+    TYPES,
+    COSTS
+} from "./constants";
 
 const PREP_SCRIPTS = {
     weaken: "/batcher/dumb_weaken.ts",
     grow: "/batcher/dumb_grow.ts",
 };
 
+/**
+ * Optimizes the profile using the currently available servers.
+ * @param ns 
+ * @param profile Profile to optimize. IS MUTATED.
+ * @param cluster RAMCluster to use. IS MUTATED (through its update method).
+ * @param retryIfTimingLimited If the timing limit is reached, retry with a larger batch size.
+ * @param moneyTake The proportion of money to take in a batch. Multiplied by 1.5 if timing limited for a retry.
+ */
+function optimizeProfile(ns: NS, profile: TargetProfile, cluster: RAMCluster, retryIfTimingLimited: number = 3, moneyTake: number = 0.01) {
+    cluster.update(ns, getAllServers(ns, "home"));
+    const maxThreads = Math.floor(cluster.maxBlockSize / 1.75); // max threads per thread block
+    const maxMoney = profile.maxMoney;
+    const weakenTime = profile.weakenTime;
+    const timingLimitBatch = Math.floor(weakenTime / (4 * profile.spacer) * 0.9);  // give a little buffer for level-ups and scheduler delays
+    const amountToTake = maxMoney * moneyTake;
+    const { hackThreads, growThreads, weaken1Threads, weaken2Threads } = preFormulasThreadCalc(ns, profile.target, amountToTake);
+    if (Math.max(hackThreads, growThreads, weaken1Threads, weaken2Threads) > maxThreads) {
+        throw new Error("Cannot schedule a single batch. Things are seriously wrong.");
+    }
+    const threadCosts = [
+        hackThreads * COSTS.hack,
+        weaken1Threads * COSTS.weaken1,
+        growThreads * COSTS.grow,
+        weaken2Threads * COSTS.weaken2
+    ];
+    let ramLimitBatch = cluster.allocateBatches(ns, threadCosts);
+
+    if (ramLimitBatch <= timingLimitBatch) {
+        profile.hackRatio = moneyTake;
+        profile.mode = "RAM restricted";
+        profile.batches = ramLimitBatch;
+        return;
+    }
+    if (retryIfTimingLimited > 0) {
+        // Too many batches. Try to increase size of each batch.
+        try {
+            return optimizeProfile(ns, profile, cluster, retryIfTimingLimited - 1, moneyTake * 1.5);
+        } catch (e) {
+            // Batches are ridiculously large.
+            // Just go with the timing limit.
+        }
+    }
+    profile.hackRatio = moneyTake;
+    profile.mode = "Timing restricted";
+    profile.batches = timingLimitBatch;
+}
+
 class ContinuousBatcher {
     #ns: NS;
 
-    #profile: ServerProfile;
+    #profile: TargetProfile;
     #cluster: RAMCluster;
     #target: string;
     #schedule: Deque<Job>;
     #dataPort: NetscriptPort;
-    #batchCount: number = 0;
     #running: Map<string, Job> = new Map();
 
+    // #profile.batches is maximum number of batches schedulable
+    // #deployedBatches is the number of batches deployed/scheduled.
+    #aliveBatches: number;
     // count desyncs, but desyncing is not a big problem since the batcher is self-correcting
     #desyncs: number = 0;
 
-    constructor(ns: NS, profile: ServerProfile, cluster: RAMCluster) {
+    constructor(ns: NS, profile: TargetProfile, cluster: RAMCluster) {
+        profile.update(ns);
         this.#ns = ns;
         this.#profile = profile;
         this.#cluster = cluster;
         this.#target = profile.target;
-        this.#schedule = new Deque<Job>(profile.batches * 4); // HWGW is 4 processes
+        this.#schedule = new Deque<Job>(Math.floor(profile.weakenTime / profile.spacer) * 4 + 100);
         this.#dataPort = ns.getPortHandle(ns.pid);
 
-        this.#profile.end = Date.now() + profile.weakenTime - profile.spacer;
+        this.#aliveBatches = 0;
     }
 
-    async scheduleBatches(batches: number) {
-        while (this.#schedule.size < batches * 4) {
-            this.#batchCount++;
+    scheduleBatches(batches: number, startingBatchId: number) {
+        for (let i = 0; i < batches; i++) {
+            let id = startingBatchId + i;
+            this.#aliveBatches++;
             for (const type of TYPES) {
                 this.#profile.end += this.#profile.spacer;
-                const job = new Job(this.#ns, type, this.#profile, this.#batchCount);
+                const job = new Job(this.#ns, type, this.#profile, id);
 
                 if (!this.#cluster.assign(job)) {
                     this.#ns.print(`WARN: Failed to assign job ${job.type}: ${job.batch}.`);
@@ -56,13 +112,11 @@ class ContinuousBatcher {
                 }
                 this.#schedule.push(job);
             }
-            await this.#ns.sleep(0);
         }
     }
 
     async deploy() {
         while (this.#schedule.size > 0) {
-            await this.#ns.sleep(0);
             const job = this.#schedule.shift();
             job.end += this.#profile.delay;
             const jobPid = this.#ns.exec(
@@ -84,12 +138,13 @@ class ContinuousBatcher {
 
         // After the loop, we adjust future job ends to account for the delay, then reset it.
         this.#profile.end += this.#profile.delay;
+        this.#profile.nextBatchEnd += this.#profile.delay;
         this.#profile.delay = 0;
     }
 
     async run() {
         const dataPort = this.#dataPort;
-        await this.scheduleBatches(this.#profile.batches);
+        this.scheduleBatches(this.#profile.batches, 0);
         await this.deploy();
         this.#ns.print("Initial deployment complete.");
         while (true) {
@@ -98,6 +153,7 @@ class ContinuousBatcher {
             while (!dataPort.empty()) {
                 // someone finished, reporting their id
                 const data: string = dataPort.read();
+                this.#aliveBatches--;
 
                 if (this.#running.has(data)) {
                     this.#cluster.free(this.#running.get(data));
@@ -110,24 +166,43 @@ class ContinuousBatcher {
                 // if it's a w2, it's the end of one batch
                 if (data.startsWith("weaken2")) {
                     this.#profile.update(this.#ns);
+                    const batch = parseInt(data.slice(7));
 
-                    // If not prepped, cancel a hack.
+                    if (batch == 0) {
+                        this.#profile.end = this.#profile.nextBatchEnd;
+                        this.#profile.nextBatchEnd = this.#profile.end + this.#profile.weakenTime + this.#profile.spacer + 100; // give a little buffer
+                    }
+
+                    // If not prepped, cancel the next hack.
                     // This allows the batcher to self-recover from desyncs.
                     if (!isPrepped(this.#ns, this.#target)) {
-                        const id = "hack" + (parseInt(data.slice(7)) + 1);
+                        const id = "hack" + (batch + 1);
+                        this.#ns.print(`WARN: Desync detected. Cancelling ${id}.`);
                         const cancel = this.#running.get(id);
                         if (cancel) {
-                            this.#ns.print(`WARN: Desync detected. Cancelling ${id}.`);
                             this.#cluster.free(cancel);
                             this.#running.delete(id);
                             this.#ns.kill(cancel.pid);
                             this.#desyncs++;
+                            this.#ns.print(`INFO: Cancelled ${id}.`);
                         }
                     }
 
-                    // schedule another batch
-                    await this.scheduleBatches(1);
-                    await this.deploy();
+                    // schedule another batch if we're not at the limit
+                    if (batch < this.#profile.batches) {
+                        this.scheduleBatches(1, batch);
+                        await this.deploy();
+                    }
+
+                    // every "full cycle" we do some more things
+                    if (batch + 1 == this.#aliveBatches) {
+                        // mutates profile, further batches can have different sizes
+                        optimizeProfile(this.#ns, this.#profile, this.#cluster, 3);
+                        this.#profile.update(this.#ns);
+                        // we can schedule more batches if we're not at the limit
+                        this.scheduleBatches(this.#profile.batches - this.#aliveBatches, this.#aliveBatches);
+                        await this.deploy();
+                    }
                 }
             }
         }
@@ -228,6 +303,7 @@ export async function main(ns: NS) {
         SCRIPTS.grow,
         SCRIPTS.weaken2,
         SCRIPTS.hack,
+        "/batcher/typedefs.ts",
     ];
     ns.disableLog('ALL');
     ns.tail();
@@ -255,12 +331,12 @@ export async function main(ns: NS) {
             await prep(ns, target);
         }
 
-        const profile = new ServerProfile(ns, target);
+        const profile = new TargetProfile(ns, target);
         const cluster = new RAMCluster(ns, allServers);
 
-        ns.print("Optimizing. May take a while.");
-        await optimizeProfile(ns, profile, cluster);
+        optimizeProfile(ns, profile, cluster);
         profile.update(ns);
+        ns.print(`Optimized profile: ${profile.toString()}`);
 
         const batcher = new ContinuousBatcher(ns, profile, cluster);
         await batcher.run();
