@@ -1,20 +1,6 @@
 import { find_xpath_with_retry, click, setText } from "./webui";
 import { getDataNewProcess, log } from "./utils";
 
-const argsSchema: [string, string | boolean | number | string[]][] = [
-    ["on-completion-script", ""],
-];
-
-export function autocomplete(data: AutocompleteData, args: string[]) {
-    data.flags(argsSchema);
-    const lastFlag = args.length > 1 ? args[args.length - 2] : null;
-    if ("--on-completion-script" == lastFlag) {
-        return data.scripts;
-    }
-    return [];
-}
-
-
 /**
  * Copied from https://github.com/bitburner-official/bitburner-src/blob/dev/src/Casino/RNG.ts
  */
