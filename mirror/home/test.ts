@@ -1,6 +1,5 @@
-import { getDataNewProcess } from "./utils";
+import { preFormulasThreadCalc } from "./batcher/utils"
 
 export async function main(ns: NS) {
-    const res = await getDataNewProcess(ns, "ns.getServerMoneyAvailable('nwo')", [], ns.run, []);
-    ns.tprint(res);
+    ns.tprint(ns.getWeakenTime("rho-construction") / 1000 / 60)
 }

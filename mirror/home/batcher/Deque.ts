@@ -1,4 +1,93 @@
 import { IDable } from "./typedefs";
+
+/**
+ * A basic Deque, implemented using a circular queue/array. Does not support deletion or lookup.
+ * As a result does not require the elements to be IDable.
+ */
+export class BasicDeque<T> {
+    #capacity: number;
+    #length: number = 0;
+    #front: number = 0;
+    #elements: T[];
+
+    constructor(capacity: number) {
+        this.#capacity = capacity;
+        this.#elements = new Array(capacity);
+    }
+
+    get size() {
+        return this.#length;
+    }
+
+    get capacity() {
+        return this.#capacity;
+    }
+
+    isEmpty() {
+        return this.size == 0;
+    }
+
+    isFull() {
+        return this.size == this.#capacity;
+    }
+
+    get #back() {
+        return (this.#front + this.#length) % this.#capacity;
+    }
+
+    push(value: T) {
+        if (this.isFull()) {
+            throw new Error("Full deque.");
+        }
+        this.#elements[this.#back] = value;
+        this.#length++;
+    }
+
+    pop() {
+        if (this.isEmpty()) {
+            throw new Error("Tried to pop from an empty deque.");
+        }
+        const item = this.#elements[this.#back];
+        this.#elements[this.#back] = null;
+        this.#length--;
+        return item;
+    }
+
+    shift() {
+        if (this.isEmpty()) {
+            throw new Error("Tried to shift from an empty deque.");
+        }
+        const item = this.#elements[this.#front];
+        this.#elements[this.#front] = null;
+        this.#front = (this.#front + 1) % this.#capacity;
+        this.#length--;
+        return item;
+    }
+
+    unshift(value: T) {
+        if (this.isFull()) {
+            throw new Error("Full deque.");
+        }
+        this.#front = (this.#front - 1 + this.#capacity) % this.#capacity;
+        this.#elements[this.#front] = value;
+        this.#length++;
+    }
+
+    peekFront() {
+        if (this.isEmpty()) {
+            throw new Error("Tried to peek from an empty deque.");
+        }
+        return this.#elements[this.#front];
+    }
+
+    peekBack() {
+        if (this.isEmpty()) {
+            throw new Error("Tried to peek from an empty deque.");
+        }
+        return this.#elements[(this.#back - 1 + this.#capacity) % this.#capacity];
+    }
+}
+
 /**
  * A classic Deque, implemented using a circular queue/array.
  * TODO: Delete is O(N), maybe use doubly linked list + inverted index to do everything in O(1)

@@ -23,6 +23,16 @@ const PREP_SCRIPTS = {
     grow: "/batcher/dumb_grow.ts",
 };
 
+const SCRIPTS_TO_COPY = [
+    PREP_SCRIPTS.weaken,
+    PREP_SCRIPTS.grow,
+    SCRIPTS.weaken1,
+    SCRIPTS.grow,
+    SCRIPTS.weaken2,
+    SCRIPTS.hack,
+    "/batcher/typedefs.ts",
+];
+
 /**
  * Optimizes the profile using the currently available servers.
  * @param ns 
@@ -36,7 +46,7 @@ function optimizeProfile(ns: NS, profile: TargetProfile, cluster: RAMCluster, re
     const maxThreads = Math.floor(cluster.maxBlockSize / 1.75); // max threads per thread block
     const maxMoney = profile.maxMoney;
     const weakenTime = profile.weakenTime;
-    const timingLimitBatch = Math.floor(weakenTime / (4 * profile.spacer) * 0.9);  // give a little buffer for level-ups and scheduler delays
+    const timingLimitBatch = Math.floor(weakenTime / (4 * profile.spacer) * 0.97);  // give a little buffer for level-ups and scheduler delays
     const amountToTake = maxMoney * moneyTake;
     const { hackThreads, growThreads, weaken1Threads, weaken2Threads } = preFormulasThreadCalc(ns, profile.target, amountToTake);
     if (Math.max(hackThreads, growThreads, weaken1Threads, weaken2Threads) > maxThreads) {
@@ -101,16 +111,28 @@ class ContinuousBatcher {
     scheduleBatches(batches: number, startingBatchId: number) {
         for (let i = 0; i < batches; i++) {
             let id = startingBatchId + i;
-            this.#aliveBatches++;
+            const staging = [];
+            let success = true;
             for (const type of TYPES) {
                 this.#profile.end += this.#profile.spacer;
                 const job = new Job(this.#ns, type, this.#profile, id);
 
                 if (!this.#cluster.assign(job)) {
-                    this.#ns.print(`WARN: Failed to assign job ${job.type}: ${job.batch}.`);
-                    continue;
+                    success = false;
+                    break;
                 }
-                this.#schedule.push(job);
+                staging.push(job);
+            }
+            if (success) {
+                for (const job of staging) {
+                    this.#schedule.push(job);
+                }
+                this.#aliveBatches++;
+            } else {
+                this.#ns.print(`WARN: Failed to schedule batch ${id}.`);
+                for (const job of staging) {
+                    this.#cluster.free(job);
+                }
             }
         }
     }
@@ -125,6 +147,12 @@ class ContinuousBatcher {
                 JSON.stringify(job)
             );
             if (!jobPid) {
+                this.#ns.tprint(`ERROR: Failed to deploy job ${job.id}.`);
+                this.#ns.tprint(JSON.stringify(job));
+                this.#ns.tprint(`${job.server}: ${this.#ns.getServerUsedRam(job.server)} / ${this.#ns.getServerMaxRam(job.server)}`);
+                this.#ns.tprint(JSON.stringify(this.#cluster.getBlock(job.server)));
+                this.#ns.tprint(`Alive batches: ${this.#aliveBatches}`);
+                this.#ns.tprint(`Profile batches: ${this.#profile.batches}`);
                 throw new Error(`ERROR: Failed to deploy job ${job.id}.`);
             }
             const tPort = this.#ns.getPortHandle(jobPid);
@@ -138,7 +166,6 @@ class ContinuousBatcher {
 
         // After the loop, we adjust future job ends to account for the delay, then reset it.
         this.#profile.end += this.#profile.delay;
-        this.#profile.nextBatchEnd += this.#profile.delay;
         this.#profile.delay = 0;
     }
 
@@ -153,7 +180,6 @@ class ContinuousBatcher {
             while (!dataPort.empty()) {
                 // someone finished, reporting their id
                 const data: string = dataPort.read();
-                this.#aliveBatches--;
 
                 if (this.#running.has(data)) {
                     this.#cluster.free(this.#running.get(data));
@@ -167,10 +193,10 @@ class ContinuousBatcher {
                 if (data.startsWith("weaken2")) {
                     this.#profile.update(this.#ns);
                     const batch = parseInt(data.slice(7));
+                    this.#aliveBatches--;
 
                     if (batch == 0) {
-                        this.#profile.end = this.#profile.nextBatchEnd;
-                        this.#profile.nextBatchEnd = this.#profile.end + this.#profile.weakenTime + this.#profile.spacer + 100; // give a little buffer
+                        this.#profile.end = Date.now() + this.#profile.spacer + this.#profile.weakenTime + 100; // give a little buffer
                     }
 
                     // If not prepped, cancel the next hack.
@@ -192,6 +218,8 @@ class ContinuousBatcher {
                     if (batch < this.#profile.batches) {
                         this.scheduleBatches(1, batch);
                         await this.deploy();
+                    } else {
+                        this.#ns.print(`INFO: Scaling back! ${this.#aliveBatches}/${this.#profile.batches} batches alive.`);
                     }
 
                     // every "full cycle" we do some more things
@@ -199,9 +227,13 @@ class ContinuousBatcher {
                         // mutates profile, further batches can have different sizes
                         optimizeProfile(this.#ns, this.#profile, this.#cluster, 3);
                         this.#profile.update(this.#ns);
+                        this.#ns.print(`${this.#aliveBatches}/${this.#profile.batches} batches.`);
+                        this.#ns.print(`${this.#profile.toString()}`);
                         // we can schedule more batches if we're not at the limit
-                        this.scheduleBatches(this.#profile.batches - this.#aliveBatches, this.#aliveBatches);
-                        await this.deploy();
+                        if (this.#profile.batches > this.#aliveBatches) {
+                            this.scheduleBatches(this.#profile.batches - this.#aliveBatches, this.#aliveBatches);
+                            await this.deploy();
+                        }
                     }
                 }
             }
@@ -213,20 +245,21 @@ async function targetScore(ns: NS, target: string, useFormulas: boolean = false)
     if (!ns.hasRootAccess(target)) return -1;
     const player = ns.getPlayer();
     const server = ns.getServer(target);
+    if (server.moneyMax === 0) return -1;
     if (server.requiredHackingSkill > player.skills.hacking) return -1;
     if (useFormulas) {
         server.hackDifficulty = server.minDifficulty;
-        let weakenTime = await getDataNewProcess(ns, "ns.formulas.hacking.weakenTime(args[0], args[1])", [server, player], (f, ...args) => ns.exec(f, "home", ...args));
+        let weakenTime = await getDataNewProcess(ns, "ns.formulas.hacking.weakenTime(args[0], args[1]) + 20", [server, player], (f, ...args) => ns.exec(f, "home", ...args));
         let hackChance = await getDataNewProcess(ns, "ns.formulas.hacking.hackChance(args[0], args[1])", [server, player], (f, ...args) => ns.exec(f, "home", ...args));
         return server.moneyMax / weakenTime * hackChance;
     }
     if (server.requiredHackingSkill > player.skills.hacking / 2) return -1;
-    let penalty = (server.moneyMax - server.moneyAvailable) / server.moneyMax * 0.8;
+    let penalty = (server.moneyMax - server.moneyAvailable) / server.moneyMax * 0.2;
     return (server.moneyMax / server.minDifficulty) * (1 - penalty);
 }
 
 async function prep(ns: NS, target: string) {
-    const cluster = new RAMCluster(ns, getAllServers(ns, "home"));
+    const cluster = new RAMCluster(ns, getAllServers(ns, "home"), SCRIPTS_TO_COPY);
     const EPSILON = 0.0001;
     const maxMoney = ns.getServerMaxMoney(target);
     const minSecurity = ns.getServerMinSecurityLevel(target);
@@ -296,15 +329,6 @@ async function prep(ns: NS, target: string) {
 
 
 export async function main(ns: NS) {
-    const scripts_to_copy = [
-        PREP_SCRIPTS.weaken,
-        PREP_SCRIPTS.grow,
-        SCRIPTS.weaken1,
-        SCRIPTS.grow,
-        SCRIPTS.weaken2,
-        SCRIPTS.hack,
-        "/batcher/typedefs.ts",
-    ];
     ns.disableLog('ALL');
     ns.tail();
     const dataPort = ns.getPortHandle(ns.pid);
@@ -312,7 +336,6 @@ export async function main(ns: NS) {
 
     while (true) {
         const allServers = getAllServers(ns, "home");
-        ns.print(allServers);
         let bestTarget: string, bestScore = -10;
         for (const server of allServers) {
             const score = await targetScore(ns, server, true);
@@ -320,7 +343,7 @@ export async function main(ns: NS) {
                 bestScore = score;
                 bestTarget = server;
             }
-            if (!ns.scp(scripts_to_copy, server, "home")) {
+            if (!ns.scp(SCRIPTS_TO_COPY, server, "home")) {
                 throw new Error(`ERROR: Failed to scp scripts to ${server}.`);
             }
         }
@@ -332,7 +355,7 @@ export async function main(ns: NS) {
         }
 
         const profile = new TargetProfile(ns, target);
-        const cluster = new RAMCluster(ns, allServers);
+        const cluster = new RAMCluster(ns, allServers, SCRIPTS_TO_COPY);
 
         optimizeProfile(ns, profile, cluster);
         profile.update(ns);

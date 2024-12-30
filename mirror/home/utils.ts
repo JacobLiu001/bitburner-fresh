@@ -33,23 +33,6 @@ export function hashString(s: string) {
     return hash;
 }
 
-export async function testHack(ns: NS) {
-    await ns.hack("joesguns");
-}
-
-/**
- * Get a port number for RAM dodger
- * @param ns
- * @param code The code expected to be run
- * @returns A (hopefully unique) port number to get the result to/from.
- */
-function getCodePort(ns: NS, code: string): number {
-    const RAM_DODGE_PORT_OFFSET = 10000000;
-    const RAM_DODGE_PORT_MAX = RAM_DODGE_PORT_OFFSET + 256;
-    const PRIME_TO_MOD_FIRST = 1000003; // to get better distribution? // TODO: get a mathematician to actually see if this is a good idea
-    return RAM_DODGE_PORT_OFFSET + (hashString(code) % PRIME_TO_MOD_FIRST + PRIME_TO_MOD_FIRST) % (RAM_DODGE_PORT_MAX - RAM_DODGE_PORT_OFFSET);
-}
-
 /**
  * RAM dodging: Run code via a temporary script, and return the result
  * @param ns
@@ -80,4 +63,24 @@ export async function getDataNewProcess(ns: NS, code: string, args: any[], fn: F
     await ns.nextPortWrite(port);
     const result = ns.readPort(port);
     return result;
+}
+
+const SUFFIXES = ["", "k", "m", "b", "t", "q", "Q", "s", "S", "o", "n", "e33", "e36", "e39"];
+
+export function parseNumber(input: number | string, binary: boolean = false): number {
+    if (typeof input === "number") {
+        return input;
+    }
+    if (SUFFIXES.includes(input.slice(-1))) {
+        const suffix = input.slice(-1);
+        const num = input.slice(0, -1);
+        const mult = binary ? (1 << (SUFFIXES.indexOf(suffix) * 10)) : Math.pow(10, SUFFIXES.indexOf(suffix) * 3);
+        return parseFloat(num) * mult;
+    }
+    if (SUFFIXES.includes(input.slice(-3))) {
+        const suffix = input.slice(-3);
+        const num = input.slice(0, -3);
+        return parseFloat(num) * Math.pow(10, SUFFIXES.indexOf(suffix) * 3);
+    }
+    return parseFloat(input);
 }

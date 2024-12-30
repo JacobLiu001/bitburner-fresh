@@ -11,6 +11,7 @@ export class RAMCluster implements IRAMCluster {
     #maxBlockSize: number = 0;
     #unusedRam: number = 0; // INVARIANT: unusedRam = sum of block.ram
     #maxRam = 0;
+    #scripts_to_copy: string[] = [];
 
     // inverted index: maps server name to index in the blocks array.
     #index: Map<string, number> = new Map();
@@ -28,7 +29,7 @@ export class RAMCluster implements IRAMCluster {
         return a.maxRam - b.maxRam;
     };
 
-    constructor(ns: NS, servers: string[]) {
+    constructor(ns: NS, servers: string[], scripts_to_copy: string[]) {
         for (const server of servers) {
             if (!ns.hasRootAccess(server)) {
                 continue;
@@ -48,6 +49,13 @@ export class RAMCluster implements IRAMCluster {
         }
         this.#blocks.sort(RAMCluster.#compareServers);
         this.#blocks.forEach((block, index) => this.#index.set(block.server, index));
+        this.#scripts_to_copy = scripts_to_copy;
+        for (const server of servers) {
+            if (server === "home") {
+                continue;
+            }
+            ns.scp(scripts_to_copy, server, "home");
+        }
     }
 
     // ugh OOP boilerplate
@@ -60,6 +68,8 @@ export class RAMCluster implements IRAMCluster {
         // so this is basically the constructor...
         // This is safe because Javascript is cooperative concurrency
         // So as long as we don't yield, nobody else will be running and reading an intermediate state.
+        const oldblocks = this.#blocks;
+        const oldindex = this.#index;
         this.#blocks = [];
         this.#minBlockSize = Infinity;
         this.#maxBlockSize = 0;
@@ -76,18 +86,24 @@ export class RAMCluster implements IRAMCluster {
             if (maxRam <= 0) {
                 continue;
             }
-            const used = Math.min(maxRam, (RAMCluster.#IGNORE_RUNNING ? 0 : ns.getServerUsedRam(server)));
-            const ram = maxRam - used;
+            const used = Math.min(maxRam, ns.getServerUsedRam(server));
+            const ram = oldindex.has(server) ? oldblocks[oldindex.get(server)].ram : maxRam - used;
             this.#blocks.push({ server, ram, maxRam });
-            this.#minBlockSize = Math.min(this.#minBlockSize, ram);
-            this.#maxBlockSize = Math.max(this.#maxBlockSize, ram);
+            this.#minBlockSize = Math.min(this.#minBlockSize, maxRam);
+            this.#maxBlockSize = Math.max(this.#maxBlockSize, maxRam);
             this.#unusedRam += ram;
             this.#maxRam += maxRam;
         }
         this.#blocks.sort(RAMCluster.#compareServers);
         this.#blocks.forEach((block, index) => this.#index.set(block.server, index));
-        ns.tprint(`Updated RAMCluster with ${this.#blocks.length} servers.`);
-        this.printBlocks(ns);
+        ns.print(`Updated RAMCluster with ${this.#blocks.length} servers.`);
+
+        for (const server of servers) {
+            if (server === "home") {
+                continue;
+            }
+            ns.scp(this.#scripts_to_copy, server, "home");
+        }
     }
 
     getBlock(server: string) {
@@ -96,6 +112,12 @@ export class RAMCluster implements IRAMCluster {
             throw new Error(`Server ${server} not found in RAMCluster`);
         }
         return this.#blocks[index];
+    }
+
+    attemptAssign(job: Job): boolean {
+        const block = this.#blocks.find(block => block.ram >= job.cost);
+        if (block) return true;
+        return false;
     }
 
     assign(job: Job): boolean {
@@ -108,6 +130,18 @@ export class RAMCluster implements IRAMCluster {
         job.server = block.server;
         block.ram -= job.cost;
         this.#unusedRam -= job.cost;
+        return true;
+    }
+
+    verify(ns: NS): boolean {
+        for (const block of this.#blocks) {
+            const used = ns.getServerUsedRam(block.server);
+            const max = ns.getServerMaxRam(block.server);
+            if (block.server !== "home" && Math.abs(block.ram - (max - used)) > 0.01) {
+                ns.print(`Server ${block.server} has RAM mismatch: ${block.ram} vs ${max - used}`);
+                return false;
+            }
+        }
         return true;
     }
 
