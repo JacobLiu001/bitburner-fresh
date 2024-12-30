@@ -90,7 +90,7 @@ export async function main(ns: NS) {
         // Casino button
         await click(ns, await find_xpath_with_retry(ns, "//span[@aria-label = 'Iker Molina Casino']", false, 15));
     } catch (e) {
-        let success = false, err: Error;
+        let success = false, err;
         try {
             success = await getDataNewProcess(ns, "ns.singularity.goToLocation('Iker Molina Casino')", [], ns.run, []);
         } catch (e) {
@@ -119,7 +119,14 @@ export async function main(ns: NS) {
     ns.clearPort(ns.pid);
 
     for (let i = 0; i < spins.length; i++) {
-        await setText(ns, inputWager, Math.min(1e7, ns.getPlayer().money).toString());
+        let wager = "";
+        const playerMoney = ns.getPlayer().money;
+        if (playerMoney <= 1e7 + 1000) {
+            wager = (playerMoney * 0.7).toString();
+        } else {
+            wager = "10000000";
+        }
+        await setText(ns, inputWager, wager);
         await click(ns, btnRoll[spins[i]]);
         await ns.sleep(1800); // the roulette takes 1.6s to spin
         if (ns.getMoneySources().sinceInstall.casino >= 1e10) {
