@@ -104,10 +104,15 @@ function planHWGW(ns: NS, target: string) {
         if (weaken1Threads > 1) {
             break;
         }
-        const growThreads = Math.ceil(ns.growthAnalyze(target, 1 / (1 - GROW_COMPENSATION * hackPercent * hackThreads)));
-        const weaken2Threads = Math.ceil(ns.growthAnalyzeSecurity(growThreads) / ns.weakenAnalyze(1));
+        let growThreads = Math.ceil(ns.growthAnalyze(target, 1 / (1 - GROW_COMPENSATION * hackPercent * hackThreads)));
+        let weaken2Threads = Math.ceil(ns.growthAnalyzeSecurity(growThreads) / ns.weakenAnalyze(1));
         const memoryConstrainedBatchCount = Math.floor(availableThreads / (hackThreads + growThreads + weaken1Threads + weaken2Threads));
         let batch_count = Math.min(MAX_BATCHES, memoryConstrainedBatchCount);
+        if (memoryConstrainedBatchCount / MAX_BATCHES > 1.5) {
+            // we have a lot of ram, so we can increase the grow amount to be safer
+            growThreads = Math.min(Math.floor(growThreads * 1.2), growThreads + 3); // 0~4=0, 5~9=1, 10~14=2, 15+=3
+            weaken2Threads = Math.ceil(ns.growthAnalyzeSecurity(growThreads) / ns.weakenAnalyze(1));
+        }
         if (batch_count < 10000) {
             // for low RAM, we need to actually schedule
             // for high RAM, this is less important and more expensive
