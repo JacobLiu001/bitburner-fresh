@@ -190,7 +190,9 @@ export async function main(ns: NS) {
                 // If the server is ridiculously bad, wait until prep is done
                 ns.print(`WARN: Batcher sleeping for ${ns.tFormat(completionTime)} for prep to finish. Server is in a bad state.`);
                 await ns.sleep(completionTime + SLEEP_SLACK_TIME);
-                continue; // don't batch and check prepping again
+                if (completionTime + SLEEP_SLACK_TIME > 10000) { // if it's not a concurrent prep
+                    continue; // don't batch and check prepping again
+                }
             }
         }
         ns.print(`Batching ${target}`);
