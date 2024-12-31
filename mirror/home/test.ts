@@ -1,5 +1,5 @@
-import { preFormulasThreadCalc } from "./batcher/utils"
+import { parseNumber } from "./utils";
 
 export async function main(ns: NS) {
-    ns.tprint(ns.getWeakenTime("rho-construction") / 1000 / 60)
+    ns.tprint(`Parsed ${ns.args[0]}: ${parseNumber(ns.args[0] as string, true)}`);
 }

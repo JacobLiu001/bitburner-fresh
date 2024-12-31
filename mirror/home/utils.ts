@@ -84,3 +84,12 @@ export function parseNumber(input: number | string, binary: boolean = false): nu
     }
     return parseFloat(input);
 }
+
+export function prettyPrintNumber(n: number, binary: boolean = false): string {
+    let i = 0;
+    while (n >= (binary ? 1024 : 1000) && i < SUFFIXES.length - 1) {
+        n /= binary ? 1024 : 1000;
+        i++;
+    }
+    return n.toFixed(2) + SUFFIXES[i];
+}

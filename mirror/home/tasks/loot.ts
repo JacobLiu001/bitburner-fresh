@@ -4,7 +4,7 @@ export async function main(ns: NS) {
         throw new Error("This script must be run on home. I can't be bothered to make it work since it's only for bootstrapping.");
     }
     if (!ns.run("/tasks/root_all.ts")) {
-        throw new Error("Couldn't try to root max num of servers.")
+        throw new Error("Couldn't try to root max num of servers.");
     }
     await ns.sleep(100); // can't be bothered to set up ipc...
     const target: string = ns.args[0] as string;
@@ -31,19 +31,19 @@ export async function main(ns: NS) {
                 throw new Error("Failed to run weaken");
             }
             if (!ns.run("/batcher/dumb_hack.ts", hackThreads, target)) {
-                throw new Error("Failed to run weaken");
+                throw new Error("Failed to run hack");
             }
-            await ns.sleep(weakenTime / 4 + 100);
+            await ns.sleep(weakenTime / 4 + 20);
             if (!ns.run("/batcher/dumb_hack.ts", hackThreads, target)) {
-                throw new Error("Failed to run weaken");
+                throw new Error("Failed to run hack");
             }
-            await ns.sleep(weakenTime / 4 + 100);
+            await ns.sleep(weakenTime / 4 + 20);
             if (!ns.run("/batcher/dumb_hack.ts", hackThreads, target)) {
-                throw new Error("Failed to run weaken");
+                throw new Error("Failed to run hack");
             }
-            await ns.sleep(weakenTime / 4 + 100);
+            await ns.sleep(weakenTime / 4 + 20);
             if (!ns.run("/batcher/dumb_hack.ts", hackThreads, target)) {
-                throw new Error("Failed to run weaken");
+                throw new Error("Failed to run hack");
             }
             await ns.sleep(weakenTime / 4 + 100);
         }

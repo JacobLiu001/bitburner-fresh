@@ -1,5 +1,3 @@
-import { parseNumber } from "./utils";
-
 const argsSchema: [string, string][] = [
     ["buy", ""],
     ["get-price", ""],
@@ -13,14 +11,22 @@ export function autocomplete(data: AutocompleteData, args: string[]) {
 
 const ALLOWED_RAM = [...Array(20).keys().map(i => Math.pow(2, i + 1))];
 
+function parseMemory(memory: string) {
+    const SUFFIXES = ["G", "T", "P", "E"];
+    const suffix = memory.slice(-1).toUpperCase();
+    const num = memory.slice(0, -1);
+    const mult = Math.pow(1024, SUFFIXES.indexOf(suffix));
+    return parseFloat(num) * mult;
+}
+
 function buy(ns: NS, args: string[]) {
     const [amountStr, name = `pserv-${ns.getPurchasedServers().length}`] = args;
-    const amount = parseNumber(amountStr, true);
-    if (!ALLOWED_RAM.includes(parseNumber(amount))) {
+    const amount = parseMemory(amountStr);
+    if (!ALLOWED_RAM.includes(amount)) {
         ns.tprint(`ERROR: Invalid amount: ${amount}`);
         return;
     }
-    if (ns.purchaseServer(name, parseNumber(amount))) {
+    if (ns.purchaseServer(name, amount)) {
         ns.tprint(`SUCCESS: Bought server ${name} with ${amount}GB RAM`);
     } else {
         ns.tprint(`ERROR: Failed to buy server ${name}`);
@@ -29,7 +35,7 @@ function buy(ns: NS, args: string[]) {
 
 function getPrice(ns: NS, args: string[]) {
     const [amountStr] = args;
-    const amount = parseNumber(amountStr, true);
+    const amount = parseMemory(amountStr);
     if (!ALLOWED_RAM.includes(amount)) {
         ns.tprint(`ERROR: Invalid amount: ${amount}`);
         return;
@@ -39,7 +45,7 @@ function getPrice(ns: NS, args: string[]) {
 
 function upgradeAll(ns: NS, args: string[]) {
     const [amountStr] = args;
-    const amount = parseNumber(amountStr, true);
+    const amount = parseMemory(amountStr);
     for (const server of ns.getPurchasedServers()) {
         ns.upgradePurchasedServer(server, amount);
     }
