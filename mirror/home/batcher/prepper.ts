@@ -79,12 +79,13 @@ export async function prepServer(ns: NS, target: string) {
         if (growThreadCount + weakenThreadCount < availableThreads * 0.8) {
             // a lot of left-over RAM.
             ns.print(`A lot of left-over RAM. Early exiting prepper to schedule the rest for batching.`);
-            return;
+            return ns.getWeakenTime(target) + SLEEP_EXTRA;
         }
         ns.print(`Sleeping for ${ns.tFormat(ns.getWeakenTime(target))} for grow to finish`);
         await ns.sleep(ns.getWeakenTime(target) + SLEEP_EXTRA);
         server = ns.getServer(target);
     }
+    return 0;
 }
 
 export async function main(ns: NS) {

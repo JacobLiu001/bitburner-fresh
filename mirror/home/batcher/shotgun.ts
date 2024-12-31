@@ -106,9 +106,8 @@ function planHWGW(ns: NS, target: string) {
         }
         const growThreads = Math.ceil(ns.growthAnalyze(target, 1 / (1 - GROW_COMPENSATION * hackPercent * hackThreads)));
         const weaken2Threads = Math.ceil(ns.growthAnalyzeSecurity(growThreads) / ns.weakenAnalyze(1));
-        let batch_count = Math.min(MAX_BATCHES,
-            Math.floor(availableThreads / (hackThreads + growThreads + weaken1Threads + weaken2Threads))
-        );
+        const memoryConstrainedBatchCount = Math.floor(availableThreads / (hackThreads + growThreads + weaken1Threads + weaken2Threads));
+        let batch_count = Math.min(MAX_BATCHES, memoryConstrainedBatchCount);
         if (batch_count < 10000) {
             // for low RAM, we need to actually schedule
             // for high RAM, this is less important and more expensive
@@ -181,7 +180,13 @@ export async function main(ns: NS) {
 
         if (server.hackDifficulty > server.minDifficulty || server.moneyAvailable < server.moneyMax) {
             ns.print(`Prepping ${target}`);
-            await prepServer(ns, target);
+            const completionTime = await prepServer(ns, target);
+            if (server.moneyAvailable < server.moneyMax * 0.7 || server.hackDifficulty > server.minDifficulty * 1.15) {
+                // If the server is ridiculously bad, wait until prep is done
+                ns.print(`WARN: Batcher sleeping for ${ns.tFormat(completionTime)} for prep to finish. Server is in a bad state.`);
+                await ns.sleep(completionTime + SLEEP_SLACK_TIME);
+                continue; // don't batch and check prepping again
+            }
         }
         ns.print(`Batching ${target}`);
         let [hackThreads, weaken1Threads, growThreads, weaken2Threads] = planHWGW(ns, target);
