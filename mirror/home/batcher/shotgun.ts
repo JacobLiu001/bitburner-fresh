@@ -3,7 +3,7 @@ import { prepServer } from "./prepper";
 import { RamNet } from "./RamNet";
 
 const SLEEP_SLACK_TIME = 2000; // fuck me.
-const MAX_BATCHES = 50000;
+const MAX_BATCHES = 90000;
 const GROW_COMPENSATION = 1.01; // heath robinson growth compensation
 
 
@@ -21,12 +21,12 @@ function getOptimalTarget(ns: NS) {
         const baseScore = server.moneyMax * hackChanceAdjusted * hackPercentAdjusted / timePenalty;
 
         if (server.hackDifficulty == server.minDifficulty && server.moneyAvailable >= 0.9 * server.moneyMax) {
-            return baseScore * 2;
+            return baseScore * 1.2;
         }
         return baseScore;
     }
     if (hackLevel < 250) {
-        // good xp ratio, good growth, earlygame king
+        // best xp ratio, good growth, earlygame king
         return "joesguns";
     }
 
@@ -101,16 +101,16 @@ function planHWGW(ns: NS, target: string) {
     const hackPercent = ns.hackAnalyze(target);
     for (let hackThreads = 1; GROW_COMPENSATION * hackPercent * hackThreads < 1; hackThreads++) {
         const weaken1Threads = Math.ceil((ns.hackAnalyzeSecurity(hackThreads) / ns.weakenAnalyze(1)));
-        if (weaken1Threads > 1) {
-            break;
-        }
         let growThreads = Math.ceil(ns.growthAnalyze(target, 1 / (1 - GROW_COMPENSATION * hackPercent * hackThreads)));
         let weaken2Threads = Math.ceil(ns.growthAnalyzeSecurity(growThreads) / ns.weakenAnalyze(1));
         const memoryConstrainedBatchCount = Math.floor(availableThreads / (hackThreads + growThreads + weaken1Threads + weaken2Threads));
         let batch_count = Math.min(MAX_BATCHES, memoryConstrainedBatchCount);
+        if (batch_count < 2) {
+            break;
+        }
         if (memoryConstrainedBatchCount / MAX_BATCHES > 1.5) {
             // we have a lot of ram, so we can increase the grow amount to be safer
-            growThreads = Math.min(Math.floor(growThreads * 1.2), growThreads + 3); // 0~4=0, 5~9=1, 10~14=2, 15+=3
+            growThreads = Math.min(Math.floor(growThreads * 1.05), growThreads + 7);
             weaken2Threads = Math.ceil(ns.growthAnalyzeSecurity(growThreads) / ns.weakenAnalyze(1));
         }
         if (batch_count < 10000) {
@@ -177,16 +177,23 @@ export async function main(ns: NS) {
     dataPort.clear();
 
     while (true) {
+        const pid = ns.run("/tasks/root_all.ts");
+        if (!pid) {
+            ns.print("Failed to launch root_all");
+            return;
+        }
+        while (ns.isRunning(pid)) await ns.sleep(0);
         const allServers = getAllServers(ns, "home");
         allServers.forEach(x => ns.scp(REMOTE_SCRIPTS, x, "home"));
 
         const target = ns.args[0] as string ?? getOptimalTarget(ns);
-        const server = ns.getServer(target);
+        let server = ns.getServer(target);
 
         if (server.hackDifficulty > server.minDifficulty || server.moneyAvailable < server.moneyMax) {
             ns.print(`Prepping ${target}`);
             const completionTime = await prepServer(ns, target);
-            if (server.moneyAvailable < server.moneyMax * 0.7 || server.hackDifficulty > server.minDifficulty * 1.15) {
+            server = ns.getServer(target);
+            if (completionTime > 0 && (server.moneyAvailable < server.moneyMax * 0.7 || server.hackDifficulty > server.minDifficulty * 1.15)) {
                 // If the server is ridiculously bad, wait until prep is done
                 ns.print(`WARN: Batcher sleeping for ${ns.tFormat(completionTime)} for prep to finish. Server is in a bad state.`);
                 await ns.sleep(completionTime + SLEEP_SLACK_TIME);
