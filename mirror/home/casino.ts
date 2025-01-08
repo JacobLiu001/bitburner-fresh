@@ -33,6 +33,20 @@ async function scheduleByPort(ns: NS, portNum: number, f: Function) {
     return 114514;
 }
 
+const argsSchema: [string, string | number | boolean | string[]][] = [
+    ["continuation", "/main.ts"],
+    ["continuation-args", []]
+];
+
+export function autocomplete(data: AutocompleteData, args: string[]) {
+    data.flags(argsSchema);
+    if (args.at(-1) === "--continuation" || args.at(-2) === "--continuation") {
+        return data.scripts;
+    }
+    return [];
+}
+
+
 export async function main(ns: NS) {
     ns.tail();
     ns.enableLog("ALL");
@@ -44,7 +58,7 @@ export async function main(ns: NS) {
     let t = new Date().getTime();
     let rng = new WHRNG(t);
     let spin = () => Math.floor(rng.random() * 37);
-    let spins = Array.from(Array(1024), spin);
+    let spins = Array.from(Array(1024), spin); // ~28 spins is enough to get kicked out
     let o = Date.prototype.getTime;
     Date.prototype.getTime = function () {
         return t;
@@ -131,7 +145,7 @@ export async function main(ns: NS) {
         await ns.sleep(1800); // the roulette takes 1.6s to spin
         if (ns.getMoneySources().sinceInstall.casino >= 1e10) {
             log(ns, "SUCCESS: Kicked out!", true, "success");
-            return;
+            break;
         }
         let ans = rouletteResult.textContent;
         if (["B", "R"].includes(ans[ans.length - 1])) {
@@ -153,5 +167,11 @@ export async function main(ns: NS) {
         if (!found) {
             throw new Error("Failed to resync roulette.");
         }
+    }
+    // we're done
+    log(ns, "INFO: Finished roulette.");
+    const flags = ns.flags(argsSchema);
+    if (flags["continuation"]) {
+        ns.run(flags["continuation"] as string, 1, ...(flags["continuation-args"] as string[]));
     }
 }

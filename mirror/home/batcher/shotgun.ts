@@ -5,7 +5,23 @@ import { RamNet } from "./RamNet";
 const SLEEP_SLACK_TIME = 2000; // fuck me.
 const MAX_BATCHES = 90000;
 const GROW_COMPENSATION = 1.01; // heath robinson growth compensation
+const SHARE_DURATION = 10000; // each cycle of ns.share() is 10 seconds
+const CONFLICT_SCRIPTS = [
+    "/batcher/shotgun.ts",
+    "batcher/shotgun.ts",
+    "/batcher/farm_xp.ts",
+    "batcher/farm_xp.ts",
+];
 
+const argsSchema: [string, string | number | boolean | string[]][] = [
+    ["no-share", false],
+    ["share-amount", 0.95]
+];
+
+export function autocomplete(data: AutocompleteData, args: string[]) {
+    data.flags(argsSchema);
+    return [];
+}
 
 function getOptimalTarget(ns: NS) {
     const hackLevel = ns.getHackingLevel();
@@ -73,7 +89,7 @@ function launchGrow(ns: NS, target: string, threads: number, ramNet: RamNet, dry
  */
 function launchWeaken(ns: NS, target: string, threads: number, ramNet: RamNet, dryRun: boolean) {
     while (threads > 0) {
-        const block = ramNet.blocks.find(b => b.ram >= threads * 1.75);
+        const block = ramNet.blocks.find(b => b.ram >= 1.75);
         if (!block) {
             return 0;
         }
@@ -89,6 +105,27 @@ function launchWeaken(ns: NS, target: string, threads: number, ramNet: RamNet, d
     }
     return -1; // so we don't accidentally kill something else
 };
+
+function launchShare(ns: NS, ramNet: RamNet, iters: number, threads: number, dryRun: boolean) {
+    let threadsLaunched = 0;
+    while (threads > 0) {
+        const block = ramNet.blocks.find(b => b.ram >= 4);
+        if (!block) {
+            return threadsLaunched;
+        }
+        const actualThreads = Math.min(threads, Math.floor(block.ram / 4));
+        if (!dryRun) {
+            if (!ns.exec("/batcher/shotgun_share.js", block.name, actualThreads, iters)) {
+                ns.print(`WARN: Failed to spread launch share on ${block.name}`);
+                return threadsLaunched;
+            }
+        }
+        block.ram -= actualThreads * 4;
+        threads -= actualThreads;
+        threadsLaunched += actualThreads;
+    }
+    return threadsLaunched;
+}
 
 function planHWGW(ns: NS, target: string) {
     const ramNet = new RamNet(ns);
@@ -158,24 +195,48 @@ function planHWGW(ns: NS, target: string) {
     return best;
 }
 
+/**
+ * Gets the PIDs of other instances of this script running.
+ */
+function getOtherInstances(ns: NS): ProcessInfo[] {
+    const instances = ns.ps();
+    return instances.filter(x => (
+        CONFLICT_SCRIPTS.includes(x.filename)
+        && x.pid !== ns.pid
+    ));
+}
 
 export async function main(ns: NS) {
+    const otherInstances = getOtherInstances(ns);
+    if (otherInstances.length > 0) {
+        if (otherInstances.length > 1) {
+            ns.tprint(`ERROR: WTF! Multiple conflicting processes are already running. Exiting.`);
+            return;
+        }
+        ns.tprint(`WARN: Found other batchers running. Killing.`);
+        otherInstances.forEach(x => {
+            ns.toast(`Batcher: killing PID: ${x.pid}`, "warning");
+            ns.kill(x.pid);
+        });
+    }
+    const args = ns.flags(argsSchema);
+    const SHARE_AMOUNT = args["share-amount"] as number;
     ns.disableLog('ALL');
     const REMOTE_SCRIPTS = [
         "/batcher/shotgun_hack.js",
         "/batcher/shotgun_grow.js",
         "/batcher/shotgun_weaken.js",
-        "/batcher/shotgun_hack_half.js"
+        "/batcher/shotgun_hack_half.js",
+        "/batcher/shotgun_share.js"
     ];
     // Force module compilation
-    const pids = [ns.run(REMOTE_SCRIPTS[0]), ns.run(REMOTE_SCRIPTS[1]), ns.run(REMOTE_SCRIPTS[2]), ns.run(REMOTE_SCRIPTS[3])];
+    const pids = REMOTE_SCRIPTS.map(x => ns.run(x));
     for (let pid of pids) {
         while (ns.isRunning(pid)) await ns.sleep(0);
     }
     ns.tail();
     const dataPort = ns.getPortHandle(ns.pid);
     dataPort.clear();
-
     while (true) {
         const pid = ns.run("/tasks/root_all.ts");
         if (!pid) {
@@ -193,7 +254,7 @@ export async function main(ns: NS) {
             ns.print(`Prepping ${target}`);
             const completionTime = await prepServer(ns, target);
             server = ns.getServer(target);
-            if (completionTime > 0 && (server.moneyAvailable < server.moneyMax * 0.7 || server.hackDifficulty > server.minDifficulty * 1.15)) {
+            if (completionTime > 0 && (server.moneyAvailable < server.moneyMax * 0.7 || server.hackDifficulty > server.minDifficulty + 0.001)) {
                 // If the server is ridiculously bad, wait until prep is done
                 ns.print(`WARN: Batcher sleeping for ${ns.tFormat(completionTime)} for prep to finish. Server is in a bad state.`);
                 await ns.sleep(completionTime + SLEEP_SLACK_TIME);
@@ -222,7 +283,19 @@ export async function main(ns: NS) {
             batches_launched++;
         }
         ns.print(`Launched ${batches_launched} batches on ${target}`);
-        ns.print(`Sleeping for ${ns.tFormat(ns.getWeakenTime(target))} for batch to finish`);
-        await ns.sleep(ns.getWeakenTime(target) + SLEEP_SLACK_TIME);
+        ns.print(`Sleeping for ${ns.tFormat(ns.getWeakenTime(target) + SLEEP_SLACK_TIME)} for batch to finish`);
+
+        // Share if we can. This works less well when batches are short... But I can't be bothered to fix it.
+        if (!args["no-share"] && ns.getWeakenTime(target) > SHARE_DURATION) {
+            const shareIter = Math.floor(ns.getWeakenTime(target) / SHARE_DURATION);
+            if (shareIter < 1) {
+                ns.print("WARN: Weaken Duration for target is very short. Skipping share in case scheduling changes.");
+            } else {
+                const shareThreads = Math.floor((ramNet.maxRam * SHARE_AMOUNT - ramNet.usedRam) / 4);
+                ns.print(`Launching ${shareThreads} share for ${shareIter} iterations`);
+                launchShare(ns, ramNet, shareIter, shareThreads, false);
+            }
+        }
+        await 0; await 0; await ns.sleep(ns.getWeakenTime(target) + SLEEP_SLACK_TIME);
     }
 }
