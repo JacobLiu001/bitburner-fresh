@@ -1,51 +1,51 @@
-
 export async function main(ns: NS) {
+    const SECURITY_THRESHOLD = 1; // 20 threads of weaken is 1 security level
     if (ns.self().server !== "home") {
         throw new Error("This script must be run on home. I can't be bothered to make it work since it's only for bootstrapping.");
     }
-    if (!ns.run("/tasks/root_all.ts")) {
-        throw new Error("Couldn't try to root max num of servers.");
-    }
-    await ns.sleep(100); // can't be bothered to set up ipc...
-    const target: string = ns.args[0] as string;
+    ns.exec("/tasks/root_all.ts", "home");
+    await ns.sleep(1000); // save 0.1GB of RAM
+    ns.exec("/tasks/write_all_servers.ts", "home");
+    await ns.sleep(1000);
+    const servers = JSON.parse(ns.read("/tmp/all_rooted.txt"));
+    ns.exec(
+        "/tasks/distribute_files.ts",
+        "home", 1,
+        JSON.stringify(servers),
+        JSON.stringify(["/batcher/dumb_hack.ts", "/batcher/dumb_weaken.ts"]),
+        "home"
+    );
+    await ns.sleep(1000);
+    const target: string = (ns.args[0] as string) ?? "foodnstuff";
     // do not grow, only hack and weaken
-    const availableRam = ns.getServerMaxRam("home") - ns.getServerUsedRam("home");
-    ns.print(`Available RAM: ${availableRam}`);
-    const minSecurity = ns.getServerMinSecurityLevel(target);
-    const weakenTime = ns.getWeakenTime(target);
-    while (ns.getServerMoneyAvailable(target) >= 10) {
-        const security = ns.getServerSecurityLevel(target);
-        const deltaSecurity = security - minSecurity;
-
-        if (security - minSecurity >= 0.05 * Math.floor(availableRam / 1.75)) {
-            // every thread to weaken
-            const threads = Math.floor(availableRam / 1.75);
-            ns.print(`Weakening ${target} with ${threads} threads`);
-            ns.run("/batcher/dumb_weaken.ts", threads, target);
-            await ns.sleep(weakenTime);
-        } else {
-            const hackThreads = Math.max(0, Math.floor((6.25 * availableRam - 1.75 * 125 * deltaSecurity) / (1.75 + 1.7 * 6.25)) - 2);
-            const weakenThreads = Math.floor((availableRam - 1.7 * hackThreads) / 1.75);
-            ns.print(`${target} with H:${hackThreads} + W:${weakenThreads} threads`);
-            if (!ns.run("/batcher/dumb_weaken.ts", weakenThreads, target)) {
-                throw new Error("Failed to run weaken");
+    while (true) {
+        if (ns.getServerSecurityLevel(target) > ns.getServerMinSecurityLevel(target) + SECURITY_THRESHOLD) {
+            ns.print(`Weakening ${target}`);
+            for (const server of servers) {
+                const availRam = ns.getServerMaxRam(server) - ns.getServerUsedRam(server);
+                const threads = Math.floor(availRam / 1.75);
+                if (threads < 1) {
+                    continue;
+                }
+                ns.scp("/batcher/dumb_weaken.ts", server, "home");
+                ns.exec("/batcher/dumb_weaken.ts", server, threads, target);
             }
-            if (!ns.run("/batcher/dumb_hack.ts", hackThreads, target)) {
-                throw new Error("Failed to run hack");
-            }
-            await ns.sleep(weakenTime / 4 + 20);
-            if (!ns.run("/batcher/dumb_hack.ts", hackThreads, target)) {
-                throw new Error("Failed to run hack");
-            }
-            await ns.sleep(weakenTime / 4 + 20);
-            if (!ns.run("/batcher/dumb_hack.ts", hackThreads, target)) {
-                throw new Error("Failed to run hack");
-            }
-            await ns.sleep(weakenTime / 4 + 20);
-            if (!ns.run("/batcher/dumb_hack.ts", hackThreads, target)) {
-                throw new Error("Failed to run hack");
-            }
-            await ns.sleep(weakenTime / 4 + 100);
+            await ns.sleep(ns.getWeakenTime(target) + 150);
+            continue;
         }
+        if (ns.getServerMoneyAvailable(target) > 0) {
+            ns.print(`Hacking ${target}`);
+            for (const server of servers) {
+                const availRam = ns.getServerMaxRam(server) - ns.getServerUsedRam(server);
+                const threads = Math.floor(availRam / 1.7);
+                if (threads < 1) {
+                    continue;
+                }
+                ns.exec("/batcher/dumb_hack.ts", server, threads, target);
+            }
+            await ns.sleep(ns.getHackTime(target) + 150);
+            continue;
+        }
+        break;
     }
 }
