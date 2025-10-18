@@ -141,3 +141,5 @@ build/
 
 .vscode/*
 !.vscode/launch.json
+
+mirror/home/tmp/**
